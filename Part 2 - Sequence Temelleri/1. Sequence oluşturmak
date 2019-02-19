@@ -1,0 +1,175 @@
+# PART 2 - Sequence temelleri
+
+Buraya kadar olan bölümlerde Rx temel hatlarıyla anlatıldı. Şimdi bir sequence, türkçe karşılığıyla dizi, oluşturabiliriz. Orjinal [www.introtorx.com](http://www.introtorx.com/) ve [Intro-To-RxJava](https://github.com/Froussios/Intro-To-RxJava)'u izleyerek operasyonları kolay bir şekilde bölmeye ve anlamaya çalışacağız. Çoğu RX oparatörleri hali hazırda varolan sequenceleri manipüle etmek için kullanılır. Ama biz öncelikle, nasıl `Observable()` oluşturacağımızı öğrenerek başlayacağız.
+
+## Sequence oluşturmak
+
+Önceki örneklerimizde oluşturduğumuz sequencelere, manuel olarak değer pushlamak için `Subject`leri kullandık. Bunu Rx metodlarının ilk ve en önemlisi olan `subscribe`ı anlamak ve görmek için yaptık. Çoğu durumda subjectler bir `Observable` oluşturmanın en iyi yolu değildir. Şimdi bunun daha düzenli bir yol ile göreceğiz.
+
+## Temel factory metodları
+
+### Observable.just
+
+`just` metodu daha önceden tanımlanmış bir sequence'in değerlerini emit eder (dağıtır) ve sonra sonlanır.
+
+```java
+Observable<String> values = Observable.just("one", "two", "three");
+
+values.subscribe(
+    v -> System.out.println("Received: " + v),
+    e -> System.out.println("Error: " + e),
+    () -> System.out.println("Completed"));
+```
+
+```diff
+- Output
+
+one
+two
+three
+Completed
+
+```
+
+### Observable.empty
+
+Bu observable yalnızca bir onComplete aksiyonu emit eder ve dispose olur.
+
+ ```java
+Observable<String> values = Observable.empty();
+
+Disposable d = values.subscribe(
+    v -> System.out.println("Received: " + v),
+    e -> System.out.println("Error: " + e),
+    () -> System.out.println("Completed"));
+ ```
+
+```diff
+- Output
+
+Completed
+```
+
+
+### Observable.never
+
+Bu observable hiçbir değer iletmeyecektir.
+
+```java
+Observable<String> values = Observable.never();
+Disposable disposable = values.subscribe(
+    v -> System.out.println("Received: " + v),
+    e -> System.out.println("Error: " + e),
+    () -> System.out.println("Completed")
+);
+
+System.out.println("" + disposable.isDisposed());
+```
+
+Yukarıdaki kod hiçbir şey print etmeyecektir. Bu işlem akışı blocklamaz ama disposable kontrol edildiğinde dispose olmadığı görülebilir.
+
+### Observable.error
+
+Bu observable bir error emit edecek ve ardından sonlacaktır.
+
+```java
+Observable<String> values = Observable.error(new Exception("Oops"));
+Disposable disposable = values.subscribe(
+    v -> System.out.println("Received: " + v),
+    e -> System.out.println("Error: " + e),
+    () -> System.out.println("Completed"));
+
+System.out.println(""+disposable.isDisposed());
+```
+
+ ```diff
+ - Output
+
+ Error: java.lang.Exception: Oops
+ true
+ ```
+
+Disposable kontrol edildiğinde dispose olduğu görülebilir.
+
+### Observable.defer
+
+`defer` yeni bir tür Observable tanımlamaz ama her yeni subscription işleminde, nasıl yeni bir observable oluşturulduğunu görmenize izin verir. Daha iyi anlamak açısından `just` üzerinden bir örnekle görelim.
+
+Observable'ımız o anki sistem saatini milisaniye cinsinden emit etsin.
+
+```java
+Observable<Long> now = Observable.just(System.currentTimeMillis());
+
+now.subscribe(System.out::println);
+Thread.sleep(1000);
+now.subscribe(System.out::println);
+```
+
+
+
+```diff
+- Output
+
+1550581908389
+1550581908389
+```
+
+Görüldüğü gibi 1 saniye farkla yapılan iki subscription işlemi aynı değeri emit etti. Bunun nedeni `just` metodu oluşturulurken emit edilen değeri tek seferleğine almasıdır.
+
+`defer` metodunda ise her subscription işleminde, `defer` içinde tanımlanan sequence yeniden oluşturulur.
+
+```java
+Observable<Long> now = Observable.defer(() ->
+    Observable.just(System.currentTimeMillis()));
+
+now.subscribe(System.out::println);
+Thread.sleep(1000);
+now.subscribe(System.out::println);
+```
+
+
+
+```diff
+- Output
+
+1550582179960
+1550582180963
+```
+
+
+### Observable.create
+
+`create` metodu observable yaratmak için en başta gelen, güçlü bir fonksiyondur. Metodun tanımına bakalım;
+
+```java
+static <T> Observable<T> create(ObservableOnSubscribe<T> source)
+```
+
+`ObservableOnSubscribe<T>` göründüğünden daha basit anlaşılabilir bir metoddur. Temel olarak `T` tipinde bir `Emitter` bir fonksiyon alır. Scopeun içinde subscriber'a pushlanan değerleri manuel olarak kontrol edebiliriz.
+
+```java
+Observable<String> observableExample = Observable.create(emitter -> {
+    emitter.onNext("Hello");
+    emitter.onComplete();
+});
+
+Disposable disposable = observableExample.subscribe(
+    v -> System.out.println("Received: " + v),
+    e -> System.out.println("Error: " + e),
+    () -> System.out.println("Completed"));
+
+System.out.println(""+disposable.isDisposed());
+```
+
+
+
+```diff
+- Output
+
+Received: Hello
+Completed
+true
+```
+
+Observable'a yapılan bir subscription işlemi sırasında (buradaki örnekte: `observableExample`), sorumlu `emitter` instance'ı ilgili fonksiyona paslanacaktır. Kod çalışmaya başladığında değerler subscriber'lara pushlanmaya başlar. Bir diğer önemli nokta ise `onComplete` metodunu çağırdığımız için işlem dispose oldu. Eğer çağırmasaydık, yapılan subscription değer beklemeye devam edecekti.
+
